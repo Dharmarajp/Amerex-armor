@@ -1,0 +1,384 @@
+/*
+ * can_u.c
+ *
+ * Created: 05-12-2022 11:42:45
+ *  Author: p.dharmaraj
+ */
+#include "main_header.h"
+#include "can_u.h"
+
+uint32_t can_identifier = 0;
+uint32_t set_can_baudrate = 0;
+uint32_t CAN_tx_bit =0;
+volatile uint32_t primary_pwr_data,secondary_pwr_data,hd2_data,hd1_data;
+can_mb_conf_t tx_mailbox, rx_mailbox;
+
+struct pgn1 j1939_pgn_data;
+struct format j1939_frame;
+
+// ///////////////////////////////////////////////
+union
+{
+	unsigned char MtrRawData[120];
+	struct
+	{
+		uint32_t datal_1;
+		uint32_t datah_1;
+		uint32_t datal_2;
+		uint32_t datah_2;
+		uint32_t datal_3;
+		uint32_t datah_3;
+	}Para;
+}MeterData;
+/////////////////////////////////////////////////////
+
+union
+{
+	unsigned char TCPCON[50];
+	struct
+	{
+		uint32_t TPCl_1;
+		uint32_t TPCh_1;
+	}GET_TPC;
+}TPC;
+
+//////////////////////////////////////////////////////
+  void reset_mailbox_conf(can_mb_conf_t *p_mailbox)
+ {
+	 p_mailbox->ul_mb_idx = 0;
+	 p_mailbox->uc_obj_type = 0;
+	 p_mailbox->uc_id_ver = 0;
+	 p_mailbox->uc_length = 0;
+	 p_mailbox->uc_tx_prio = 0;
+	 p_mailbox->ul_status = 0;
+	 p_mailbox->ul_id_msk = 0;
+	 p_mailbox->ul_id = 0;
+	 p_mailbox->ul_fid = 0;
+	 p_mailbox->ul_datal = 0;
+	 p_mailbox->ul_datah = 0;
+ }
+
+
+void trnsfer_protocol_connection(uint32_t identifier,uint16_t data_byte, uint8_t packet_size, uint32_t pgn_number)
+{
+
+	//ioport_set_pin_level(CAN_ACT,1);
+	//can_reset_all_mailbox(CAN0);
+	unsigned char temp_data[10] = {0};
+
+	temp_data[0] = BROAD_CAST; //
+	temp_data[1] = (uint8_t)((data_byte >> 8) & 0xFF);
+	temp_data[2] = (uint8_t)(data_byte & 0xFF);
+	temp_data[3] = packet_size;
+	temp_data[4] = 0xFF; // this is for reserved purpose
+	temp_data[5] = (uint8_t)((pgn_number >> 16) & 0xFF); // application specific PGN number
+	temp_data[6] = (uint8_t)((pgn_number >> 8) & 0xFF);
+	temp_data[7] = (uint8_t)(pgn_number & 0xFF);
+
+	for(int i=0;i<=4;i+=4)
+ 	{
+		TPC.TCPCON[i]    = temp_data[i];
+		TPC.TCPCON[i+1]  = temp_data[i+1];
+		TPC.TCPCON[i+2]  = temp_data[i+2];
+		TPC.TCPCON[i+3]  = temp_data[i+3];
+	}
+
+					if (can_get_status(CAN0) & CAN_SR_TBSY) {
+						//puts("Tbc\r");
+						//can_reset_all_mailbox(CAN0);
+						tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+						can_mailbox_init(CAN0, &tx_mailbox);
+						//return 0;
+					}
+
+	   				/* Init CAN1 Mailbox 1 to Transmit Mailbox. */
+	   				//reset_mailbox_conf(&tx_mailbox);
+	   				tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+	   				tx_mailbox.uc_obj_type = CAN_MB_TX_MODE;
+	   				tx_mailbox.uc_tx_prio = CAN_TX_PRIO;
+	   				tx_mailbox.uc_id_ver = 1;
+	   				tx_mailbox.ul_id_msk = 0;
+	   				can_mailbox_init(CAN0, &tx_mailbox);
+
+	   				/* Write transmit information into mailbox. */
+	   				tx_mailbox.ul_id =  identifier;//j1939_pgn(TP_DATA_PGN);//CAN_MID_MIDvA(7);
+	   				//tx_mailbox.ul_datal = CAN_MSG_DUMMY_DATA;
+	   				tx_mailbox.uc_length = MAX_CAN_FRAME_DATA_LEN;
+
+	   				tx_mailbox.ul_datah = TPC.GET_TPC.TPCh_1;
+	   				tx_mailbox.ul_datal = TPC.GET_TPC.TPCl_1;
+
+	   				can_mailbox_write(CAN0, &tx_mailbox);
+
+	   				/* Send out the information in the mailbox. */
+	   				can_global_send_transfer_cmd(CAN0, CAN_TCR_MB1);
+ 					 j1939_data_read();
+					  Delay(5);
+
+}
+
+
+
+void j1939_data_read()
+{
+	memset(j1939_pgn_data.data, 0xFF,sizeof(j1939_pgn_data.data)); //this is for reset
+	//the all valuse to 0xFF so unavaiable value automatically filled by 0xFF
+//	hd1_data = ((hd1_measured_g_u16)/1000);// / 1000); // get heat detector 1 data
+
+	//j1939_pgn_data.data[0] =0x01;  //sequence_1
+
+	j1939_pgn_data.data[0] = (uint8_t)((hd1_measured_g_u16 >> 8) & 0xFF); //SPN number 10941 heat detector 1 data
+	j1939_pgn_data.data[1] = (uint8_t)(hd1_measured_g_u16 & 0xFF); //SPN number 10941
+
+//	hd2_data = ((hd2_measured_g_u16)/1000); //get heat detector 2 data
+	j1939_pgn_data.data[2] = (uint8_t)((hd2_measured_g_u16 >> 8) & 0xFF); //SPN number 10942 heat detector 2 data;
+	j1939_pgn_data.data[3] = (uint8_t)(hd2_measured_g_u16 & 0xFF); //SPN number 10942;
+
+	if(pres_sw_trbl_g_b)
+	{
+
+		//j1939_pgn_data.data[8] = 0x00; //SPN number 10945 pressure switch digital data if Switch open 1
+		//j1939_pgn_data.data[8] = 0x02; //sequence_2
+		j1939_pgn_data.data[4] = 0x00; //SPN number 10945 pressure switch digital data if Switch open 1
+		j1939_pgn_data.data[5] = 0x01; ////SPN number 10945 pressure switch digital data if Switch open 1
+	}
+	else
+	{
+		//j1939_pgn_data.data[8] = 0x02; //sequence_2
+		j1939_pgn_data.data[4] = 0x00; //sequence_2
+		j1939_pgn_data.data[5] = 0x00; //SPN number 10945 pressure switch digital data if Switch close 0
+	}
+
+
+	j1939_pgn_data.data[7] = (uint8_t)((super_capVolt_g_u16 >> 8) & 0xFF) ; //SPN number 10947 primary power voltage
+	j1939_pgn_data.data[8] = (uint8_t)(super_capVolt_g_u16 & 0xFF); //SPN number 10947 primary power voltage
+
+
+	  // j1939_pgn_data.data[8] = 0x02; //sequence_2
+	//primary_pwr_data = (primary_pwr_vol_g_u16 /1000); //get primary power voltage
+	j1939_pgn_data.data[9] = (uint8_t)((primary_pwr_vol_g_u16 >> 8) & 0xFF) ; //SPN number 10947 primary power voltage
+	j1939_pgn_data.data[10] = (uint8_t)(primary_pwr_vol_g_u16 & 0xFF); //SPN number 10947 primary power voltage
+
+	//j1939_pgn_data.data[16] = 0x03; //sequence_2
+
+	//secondary_pwr_data = ((sec_pwr_vol_g_u16) / 1000); //get secondary power voltage
+	j1939_pgn_data.data[11] =  (uint8_t)((sec_pwr_vol_g_u16 >> 8) & 0xFF) ; //SPN number 10947 secondary power voltage MSB
+	j1939_pgn_data.data[12] =  (uint8_t)(sec_pwr_vol_g_u16 & 0xFF); //SPN number 10947 secondary power voltage LSB
+	j1939_pgn_data.data[13] = Trouble_status; //sequence_2
+	//j1939_pgn_data.data[16] = (uint8_t)(secondary_pwr_data & 0xFF); //SPN number 10947 secondary power voltage LSB
+
+
+
+
+	//return 1;
+}
+
+
+/**
+ * \brief Reset mailbox configure structure.
+ *
+ *  \param p_mailbox Pointer to mailbox configure structure.
+ */
+
+void j1939_data_transfer(uint32_t identifier,uint8_t Store_Send_Data)
+{
+	uint8_t data_tmp1[8] = {0};
+
+ if(!Store_Send_Data){
+	if(!j1939_pgn_data.sequence_num)
+	{
+		j1939_pgn_data.sequence_num = 1;
+	}
+	if(j1939_pgn_data.sequence_num == 1)
+	{
+		data_tmp1[0] = j1939_pgn_data.sequence_num;
+		memcpy(&data_tmp1[1], &j1939_pgn_data.data[0],7);
+	}
+	else if(j1939_pgn_data.sequence_num == 2)
+	{
+		data_tmp1[0] = j1939_pgn_data.sequence_num;
+		memcpy(&data_tmp1[1], &j1939_pgn_data.data[7],7);
+	}
+	else if(j1939_pgn_data.sequence_num == 3)
+	{
+		data_tmp1[0] = j1939_pgn_data.sequence_num;
+		memcpy(&data_tmp1[1], &j1939_pgn_data.data[14],7);
+
+	}
+
+ }
+ else
+ {
+
+			data_tmp1[0] = 5;
+			memcpy(&data_tmp1[1], &Read_flash_data[0],7);
+ }
+
+
+
+	  	for(int i=0;i<=4;i+=4)
+	  	{
+		  	MeterData.MtrRawData[i]    = data_tmp1[i];
+		  	MeterData.MtrRawData[i+1]  = data_tmp1[i+1];
+		  	MeterData.MtrRawData[i+2]  = data_tmp1[i+2];
+		  	MeterData.MtrRawData[i+3]  = data_tmp1[i+3];
+	  	}
+
+
+
+	 					if (can_get_status(CAN0) & CAN_SR_TBSY) {
+		 				//	puts("Tbd\r");
+		 					//can_reset_all_mailbox(CAN0);
+		 					tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+		 					can_mailbox_init(CAN0, &tx_mailbox);
+		 					//return 0;
+	 					}
+
+	 					/* Init CAN1 Mailbox 1 to Transmit Mailbox. */
+	 					reset_mailbox_conf(&tx_mailbox);
+	 					tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+	 					tx_mailbox.uc_obj_type = CAN_MB_TX_MODE;
+	 					tx_mailbox.uc_tx_prio = CAN_TX_PRIO;
+	 					tx_mailbox.uc_id_ver = 1;
+	 					tx_mailbox.ul_id_msk = 0;
+	 					can_mailbox_init(CAN0, &tx_mailbox);
+
+	 					/* Write transmit information into mailbox. */
+	 					tx_mailbox.ul_id = (Store_Send_Data == 0)? (identifier):CAN_MID_MIDvA(7);	//j1939_pgn(TP_DATA_PGN);
+	 					//tx_mailbox.ul_datal = CAN_MSG_DUMMY_DATA;
+	 					tx_mailbox.uc_length = MAX_CAN_FRAME_DATA_LEN;
+
+				       tx_mailbox.ul_datah = MeterData.Para.datah_1;
+				       tx_mailbox.ul_datal = MeterData.Para.datal_1;
+ 	 					can_mailbox_write(CAN0, &tx_mailbox);
+
+	 					/* Send out the information in the mailbox. */
+	 					can_global_send_transfer_cmd(CAN0, CAN_TCR_MB1);
+						 //Delay(5);
+
+
+}
+
+
+
+
+uint32_t j1939_pgn(uint16_t pgn_number)
+{
+	uint32_t can_identifier_tmp = 0; // store CAN identifier data
+
+
+	j1939_frame.Priority = 7;
+	j1939_frame.DataPage = 0;
+	j1939_frame.Res      = 0;
+	j1939_frame.SourceAddress = 0x00;
+
+	can_identifier_tmp = (((uint32_t)j1939_frame.Priority << 26)  | ((uint32_t)j1939_frame.Res << 25)   
+	| ((uint32_t)j1939_frame.DataPage << 24) | ((uint32_t) pgn_number << 8) | ((uint32_t) j1939_frame.SourceAddress));
+
+	return can_identifier_tmp;
+}
+
+void CAN_process()
+{
+   static uint32_t Payload_send_count = 0;
+	if(!pri_pwr_trouble_g_b && !test_sw_pressed_g_b && ((count_1ms - CAN_tx_bit) > 2000u) && g_ul_recv_status == 0u && ota_start == 0u && amerex_config_data.CAN_baud_rate != 0u)
+	{
+		CAN_tx_bit =count_1ms;
+
+			if(j1939_pgn_data.sequence_num <= 3 && !g_ul_log_en)
+			{
+
+
+				if(!j1939_pgn_data.sequence_num)
+				{
+					ioport_set_pin_level(CAN_ACT,1);
+					can_identifier = j1939_pgn(TP_PGN);
+					trnsfer_protocol_connection(can_identifier, 24, 3, PGN_AUXILLIARY_1);
+				}
+				else
+				{
+					can_identifier = j1939_pgn(TP_DATA_PGN);
+				    j1939_data_transfer(can_identifier,0);
+				}
+
+				j1939_pgn_data.sequence_num++;
+
+				if(j1939_pgn_data.sequence_num > 3)
+				{
+					 ioport_set_pin_level(CAN_ACT,0);
+					j1939_pgn_data.sequence_num = 0;
+				}
+			}
+			else if(g_ul_log_en == 1)
+			{
+
+				if(payload_cnt.flash_data_counter > 0 && Payload_send_count <= payload_cnt.flash_data_counter && g_ul_log_en == 1)
+				{
+				 database_send_payload(Payload_send_count);
+				 Payload_send_count++;
+				}
+				else
+				{
+				g_ul_log_en = 0;
+				Payload_send_count = 0;
+
+				}
+
+			}
+
+
+   }
+
+
+
+
+
+}
+
+
+
+
+  void CAN_Open()
+  {
+	  
+	if(amerex_config_data.CAN_baud_rate != 0u)
+	{
+		  // set_can_baudrate = (amerex_config_data.CAN_baud_rate == 1) ? CAN_BPS_500K : CAN_BPS_250K;
+
+		   set_can_baudrate	=  CAN_BPS_250K;
+
+		if (can_init(CAN0, sysclk_get_cpu_hz(), set_can_baudrate))	
+		{
+			//puts("CAN initialization is completed." STRING_EOL);
+			/* Disable all CAN1 interrupts. */
+			can_disable_interrupt(CAN0, CAN_DISABLE_ALL_INTERRUPT_MASK);
+			can_reset_all_mailbox(CAN0);
+
+			/* Init CAN1 Mailbox 0 to Reception Mailbox. */
+			reset_mailbox_conf(&rx_mailbox);
+			rx_mailbox.ul_mb_idx = CAN_COMM_RXMB_ID;
+			rx_mailbox.uc_obj_type = CAN_MB_RX_MODE;
+			rx_mailbox.ul_id_msk = CAN_MAM_MIDvA_Msk| CAN_MAM_MIDvB_Msk;
+			rx_mailbox.ul_id = CAN_MID_MIDvA(CAN_TRANSFER_ID);
+			can_mailbox_init(CAN0, &rx_mailbox);
+	reset_mailbox_conf(&tx_mailbox);
+	tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+	tx_mailbox.uc_obj_type = CAN_MB_TX_MODE;
+	tx_mailbox.uc_tx_prio = 0;
+	tx_mailbox.uc_id_ver = 0;
+	tx_mailbox.ul_id_msk = 0;
+	can_mailbox_init(CAN0, &tx_mailbox);
+
+
+			/* Enable CAN1 mailbox interrupt. */
+			//can_enable_interrupt(CAN0, 1 << CAN_COMM_RXMB_ID);
+			can_enable_interrupt(CAN0, CAN_IER_MB0);
+			cpu_irq_enable();
+			/* Configure and enable interrupt of CAN1. */
+			NVIC_EnableIRQ(CAN0_IRQn);
+
+
+		}
+   }
+}
+

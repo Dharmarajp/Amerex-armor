@@ -1,0 +1,480 @@
+/*
+ * configuration.c
+ *
+ * Created: 12-07-2022 16:38:28
+ *  Author: p.dharmaraj
+ */
+
+#include "main_header.h"
+#include <math.h>
+//#include "math.h"
+#include <limits.h>
+
+my_data config_data = {.all_LED_duty = 99u,.fire_LED_duty = 99u,.buzzer_duty = 50u,.trbl_relay_delay = 1000u,
+.fire_relay_delay = 1000u,.actuator_value = 0u,.CAN_baud_rate = 1u};
+
+uint32_t auto_exit_prev_tick_g_u32 = 0u;
+bool blink_g_b = 1u;    /*Flag to determine the LED whether LED blink or not*/
+/* Function : Enter into Configuration mode
+ * Parameter: None
+ * Return   : None
+ */
+
+void Configuration(void)
+{
+    if((count_1ms - test_sw_prev_tick_g_u32) >= SEC_5)
+    {
+        Buzzer_Beep(OFF);
+        uint32_t blink_prev_tick;             /*To store the Previous tick*/
+        uint32_t test_exit_prev_tick = count_1ms;    /*To store the Previous tick*/
+        uint32_t test_state_prev_tick;    /*To store the Previous tick For move to next state*/
+        uint32_t config_state = 0;       /* To identify the configuration*/
+        uint32_t button_status = 0u;      /* To check the inc/dec button pressed status*/
+        uint32_t test_button_pressed = 0u; /* Set bit indicate button pressed*/
+        uint32_t first_release = 0u;
+        my_data tmp_data = config_data; /*take the backup data */
+		 bool flag=1;
+
+		/* Log the Configuration enter event*/
+// 		Reset_Values();
+//         log_data.log_code = 11u; /*Indicating system reset button pressed*/
+//         log_data.start_stop = 1u; /*button pressed*/
+//         NOR_Flash_Log_Data(&log_data,spi_flash_addr_g_u32);
+ 		auto_exit_prev_tick_g_u32 = count_1ms;
+		blink_g_b = 1u;
+		LED_Blink(CONFIG_ALL_OFF,CONFIG_OFF);
+		Delay(500u);
+		Sound_Alert();
+		while(1)
+		{
+		              if(((count_1ms - blink_prev_tick) >= __500ms) && blink_g_b)
+		              {
+			              blink_prev_tick = count_1ms;
+			              LED_Blink(config_state,CONF_BLINK);
+					  }
+					/***********If user inactivity of 20sec it will exit configuration mode automatically***********/
+					if((count_1ms - auto_exit_prev_tick_g_u32) > __20_SEC)
+					{
+					//config_data = tmp_data; /*if config mode exit by user inactivity of 20 sec assign the previous values, what it has before configuration*/
+					//PWM_init();
+					Fire_LED_Count();
+					Small_Beep(40u);
+					break;
+					}
+
+					/********** Test button for move to next Configuration and exit the configuration mode***********/
+
+					//if(!ROM_GPIOPinRead(TEST_SW_PORT,TEST_SW_PIN))
+					if(!ioport_get_pin_level(TEST_SW_PIN))
+					{
+						if((count_1ms - test_exit_prev_tick) > SEC_5)
+						{
+							uint32_t eeprom_status;
+							test_sw_prev_tick_g_u32 = count_1ms;
+							Buzzer_Freq_Set(BUZZER_FREQ_2_5KHZ, config_data.buzzer_duty);
+							Buzzer_Beep(OFF);
+							LED_Blink(CONFIG_ALL_OFF,CONFIG_OFF);
+							/*Write the configuration data into EEPROM*/
+// 							eeprom_status = EEPROM_Write(EEPROM_CONFIG_ADDR,&config_data.all_LED_duty,sizeof(my_data));
+// 							eeprom_status += EEPROM_Write(EEPROM_CONFIG_ADDR_CPY,&config_data.all_LED_duty,sizeof(my_data));
+
+// 							if(eeprom_status == 2u)
+// 							{
+// 								Delay(100u); /* delay for safety, to save all values in EEPROM before controller reset*/
+// 								ROM_WatchdogReloadSet(WATCHDOG1_BASE,0u);/*Reset the controller upon successful Configuration*/
+// 								Delay(2u);/*small delay to controller reset*/
+// 							}
+//							flash_fail_g_u8 = 1u; /*indicate the memory issue error by setting this value*/
+
+							break;/*Break the while statement if configuration data write unsuccessful in EEPROM*/
+						}
+						if(((count_1ms - test_state_prev_tick) >= __100ms) && first_release)
+						{
+							test_button_pressed = 1u;
+						}
+					}
+					else
+					{
+						test_exit_prev_tick =  count_1ms;
+						test_state_prev_tick = count_1ms;
+						first_release = 1u;
+						if(test_button_pressed)
+						{
+							test_button_pressed = 0u;
+							auto_exit_prev_tick_g_u32 = count_1ms; /*Update the auto exit count*/
+							blink_g_b = 1u;
+							LED_Blink(CONFIG_ALL_OFF,CONFIG_OFF);
+							//Config_Indication_LED(OFF);
+							Buzzer_Freq_Set(BUZZER_FREQ_0_5KHZ, DUTY_0_5_KHZ);
+							Delay(200);
+							Buzzer_Freq_Set(BUZZER_FREQ_0_5KHZ, 0);
+						    Sys_Reset_LED(OFF);
+							config_state++;
+							if(config_state == 7u)
+							{
+								config_state = 0u;
+							}
+						}
+					}
+					  /******************************************************************************************/
+
+        switch(config_state)
+        {
+        case CONFIG_ALL_LED_BRIGHT:
+
+                    button_status = Button_Status();
+
+                    if(button_status == INC_BUTTON_PRESSED)
+                    {
+                        if(config_data.all_LED_duty < 100u)
+                        {
+                            config_data.all_LED_duty += 10u;
+                        }
+                        else
+                        {
+                            //Buzzer_Freq_Set(BUZZER_FREQ_3KHZ, DUTY_3_KHZ);
+                            Sound_Alert();
+                        }
+                    }
+                    else if(button_status == DEC_BUTTON_PRESSED)
+                    {
+                        if(config_data.all_LED_duty > 20u)
+                        {
+                            config_data.all_LED_duty -= 10u;
+                        }
+                        else
+                        {
+							//Buzzer_Freq_Set(BUZZER_FREQ_3KHZ, DUTY_3_KHZ);
+                             Sound_Alert();
+                        }
+                    }
+
+                    if(button_status)
+                    {
+                        LED_Blink(config_state,CONFIG_ON);
+                       	Amerex_LOGO_PWM_EN(config_data.all_LED_duty);
+                       	LEDS_PWM_EN(config_data.all_LED_duty);
+                    }
+
+      break;
+
+      case CONFIG_FIRE_LED_BRIGHT:
+
+          blink_g_b = 0u;
+          button_status = Button_Status();
+
+          if(button_status == INC_BUTTON_PRESSED)
+          {
+              if(config_data.fire_LED_duty < 100u)
+              {
+                  config_data.fire_LED_duty += 10u;
+              }
+              else
+              {
+                   Sound_Alert();
+              }
+          }
+          else if(button_status == DEC_BUTTON_PRESSED)
+          {
+              if(config_data.fire_LED_duty > 20u)
+              {
+                  config_data.fire_LED_duty -= 10u;
+              }
+              else
+              {
+                  Sound_Alert();
+              }
+          }
+          if(button_status)
+          {
+              Fire_LED_Count();
+          }
+          Fire_LED(LED_FADING);
+
+      break;
+
+      case CONFIG_BUZZER_SOUND:
+
+                    blink_g_b = 1u;
+                    button_status = Button_Status();
+                    if(button_status == INC_BUTTON_PRESSED)
+                    {
+                        if(config_data.buzzer_duty < 50u)
+                        {
+                            config_data.buzzer_duty += 10u;
+                        }
+                        else
+                        {
+                             Sound_Alert();
+                        }
+                    }
+                    else if(button_status == DEC_BUTTON_PRESSED)
+                    {
+                        if(config_data.buzzer_duty > 20u)
+                        {
+                            config_data.buzzer_duty -= 10u;
+                        }
+                        else
+                        {
+                            Sound_Alert();
+                        }
+                    }
+                    if(button_status)
+                    {
+                        LED_Blink(CONFIG_BUZZER_LED,CONFIG_ON);
+                         Delay(800);
+                         Buzzer_Freq_Set(BUZZER_FREQ_2_5KHZ, config_data.buzzer_duty);
+						 Delay(500);
+                         Buzzer_Freq_Set(BUZZER_FREQ_2_5KHZ, 0);//Small_Beep(500);
+                    }
+       break;
+	   case CONFIG_TRBL_RELAY_DELAY:
+
+	        blink_g_b = 0u;
+	        button_status = Button_Status();
+	        _Trouble_LED(ALWAYS_ON);
+	        if(button_status == INC_BUTTON_PRESSED)
+	        {
+		        if(config_data.trbl_relay_delay < 6000u)
+		        {
+			        config_data.trbl_relay_delay += 1000u;
+		        }
+		        else
+		        {
+			        Sound_Alert();
+		        }
+	        }
+	        else if(button_status == DEC_BUTTON_PRESSED)
+	        {
+		        if(config_data.trbl_relay_delay > 1000u)
+		        {
+			        config_data.trbl_relay_delay -= 1000u;
+		        }
+		        else
+		        {
+			        Sound_Alert();
+		        }
+	        }
+	        if(button_status)
+	        {
+		        Config_Indication_LED(OFF);
+	        }
+
+	        Config_Indication_LED(config_data.trbl_relay_delay / 1000u);
+
+	   break;
+	   case CONFIG_FIRE_RELAY_DELAY:
+
+	        blink_g_b = 0u;
+	        button_status = Button_Status();
+	        LED_Blink(CONFIG_FIRE_LED,CONFIG_ON);
+	        if(button_status == INC_BUTTON_PRESSED)
+	        {
+		        if(config_data.fire_relay_delay < 6000u)
+		        {
+			        config_data.fire_relay_delay += 1000u;
+		        }
+		        else
+		        {
+			        Sound_Alert();
+		        }
+	        }
+	        else if(button_status == DEC_BUTTON_PRESSED)
+	        {
+		        if(config_data.fire_relay_delay > 1000u)
+		        {
+			        config_data.fire_relay_delay -= 1000u;
+		        }
+		        else
+		        {
+			        Sound_Alert();
+		        }
+	        }
+	        if(button_status)
+	        {
+		        Config_Indication_LED(OFF);
+	        }
+
+	        Config_Indication_LED(config_data.fire_relay_delay / 1000u);
+
+	    break;
+	   	case CONFIG_ACTUATOR_CALIBRATION:
+	    break;
+
+	        case CONFIG_CAN_BUS_BAUD_RATE:
+	        Sys_Reset_LED(ON);
+	        blink_g_b = 0u;
+	        button_status = Button_Status();
+
+	        if(button_status == INC_BUTTON_PRESSED)
+	        {
+		        if(config_data.CAN_baud_rate <= 1u)
+		        {
+			        config_data.CAN_baud_rate = 2u;
+		        }
+		        else
+		        {
+			        Sound_Alert();
+		        }
+	        }
+	        else if(button_status == DEC_BUTTON_PRESSED)
+	        {
+		        if(config_data.CAN_baud_rate == 2u)
+		        {
+			        config_data.CAN_baud_rate = 1u;
+		        }
+		        else
+		        {
+			        Sound_Alert();
+		        }
+	        }
+
+	        if(button_status)
+	        {
+		        Config_Indication_LED(OFF);
+	        }
+	        Config_Indication_LED(config_data.CAN_baud_rate);
+
+	   break;
+       default:
+
+	   break;
+		}
+					/******************************************************************************************/
+		}
+
+	}
+}
+
+/* Function : Check the Increment and decrement button status
+ * Parameter: None
+ * Return   : any one of enum INC_BUTTON_PRESSED or DEC_BUTTON_PRESSED or NO_BUTTON_PRESSED
+ */
+uint32_t Button_Status(void)
+{
+    static uint8_t inc_db_count_sl_u8 = 0u; /*For increment button debounce count*/
+    static uint8_t dec_db_count_sl_u8 = 0u; /*For decrement button debounce count*/
+    static bool inc_status = 0u;
+    static bool dec_status = 0u;
+
+    if(!ioport_get_pin_level(ALARM_SILEN_PIN) && !inc_status)
+    {
+        dec_db_count_sl_u8 = 0u;
+        inc_db_count_sl_u8++;
+        if(inc_db_count_sl_u8 > CONFIG_DB_COUNT)
+        {
+            blink_g_b = 0u;
+            Buzzer_Freq_Set(BUZZER_FREQ_1_5KHZ, DUTY_1_5_KHZ);
+            //Small_Beep(100);
+			Delay(100);
+            inc_status = 1u;
+            auto_exit_prev_tick_g_u32 = count_1ms;
+		  // Buzzer_Freq_Set(BUZZER_FREQ_0, DUTY_1_5_KHZ);
+		    Buzzer_Freq_Set(BUZZER_FREQ_1_5KHZ, 0);
+            return INC_BUTTON_PRESSED ;
+        }
+    }
+    else if(ioport_get_pin_level(ALARM_SILEN_PIN))
+    {
+        inc_db_count_sl_u8 = 0u;
+        inc_status = 0u;
+    }
+
+    if(!ioport_get_pin_level(SYS_RESET_SW_PIN) && !dec_status)
+    {
+        inc_db_count_sl_u8 = 0u;
+        dec_db_count_sl_u8++;
+        if(dec_db_count_sl_u8 > CONFIG_DB_COUNT)
+        {
+            blink_g_b = 0u;
+            Buzzer_Freq_Set(BUZZER_FREQ_1_5KHZ, DUTY_1_5_KHZ);
+           // Small_Beep(100);
+		   Delay(100);
+            dec_status = 1u;
+            auto_exit_prev_tick_g_u32 = count_1ms;
+			//Buzzer_Freq_Set(BUZZER_FREQ_0, DUTY_1_5_KHZ);
+			Buzzer_Freq_Set(BUZZER_FREQ_1_5KHZ, 0);
+            return DEC_BUTTON_PRESSED;
+        }
+    }
+    else if(ioport_get_pin_level(SYS_RESET_SW_PIN))
+    {
+        dec_status = 0u;
+        dec_db_count_sl_u8 = 0u;
+    }
+
+    return NO_BUTTON_PRESSED;
+}
+
+/* Function : if the set value change to minimum or maximum alert to thr user by sound
+ * Parameter: None
+ * Return   : None
+ */
+void Sound_Alert(void)
+{
+
+     Small_Beep(100);
+     Delay(50);
+     Small_Beep(100);
+}
+/* Function : Blink the LED
+ * Parameter: @param 1 - Which LED to be access @param2 - CONFIG_ON/CONFIG_OFF/CONF_BLINK enum
+ * Return   : None
+ */
+
+void LED_Blink(uint32_t led, uint32_t value)
+{
+    static bool on_off = 0u;
+    if(value == CONFIG_ON)
+    {
+        on_off = CONFIG_ON;
+    }
+    else if(value == CONFIG_OFF)
+    {
+        on_off = CONFIG_OFF;
+    }
+    else
+    {
+        on_off = !on_off;
+    }
+
+    switch(led)
+    {
+    case CONFIG_ALL_LED:
+        ALL_LED_BLINK(on_off); /*PWM Pin disable*/
+        break;
+    case CONFIG_FIRE_LED:
+        on_off?FIRE_LED_PWM_EN(config_data.fire_LED_duty):FIRE_LED_PWM_EN(0);
+        break;
+    case CONFIG_BUZZER_LED:
+		on_off?FIRE_LED_PWM_EN(config_data.fire_LED_duty):FIRE_LED_PWM_EN(0);
+        ioport_set_pin_level(Trouble_LED,on_off);
+       break;
+    case CONFIG_TRBL_LED:
+       ioport_set_pin_level(Trouble_LED,on_off);
+        break;
+    case CONFIG_CONFIG_LED:
+       ioport_set_pin_level(sys_normal,on_off);
+        break;
+    default:
+      ALL_LED_BLINK(OFF);  /*PWM Pin disable*/
+      FIRE_LED_PWM_EN(0);
+      break;
+    }
+}
+
+
+
+
+
+/* Function : Calculate Fire LED count
+ * Parameter: None
+ * Return   : None
+ */
+void Fire_LED_Count(void)
+{
+    uint8_t fire_LED_value;
+    fire_LED_value =  (FIRE_LED_FADING_TIME / config_data.fire_LED_duty);
+    fire_LED_fading_count_g_u8 =(uint8_t)fire_LED_value; //(uint8_t)roundf(fire_LED_value);
+    fire_LED_duty_max_g_u8 = (config_data.fire_LED_duty * 2u) - 1u;
+}

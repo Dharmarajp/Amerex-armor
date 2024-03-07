@@ -1,0 +1,295 @@
+/**
+ * \file
+ *
+ * \brief Empty user application template
+ *
+ */
+
+/**
+ * \mainpage User Application template doxygen documentation
+ *
+ * \par Empty user application template
+ *
+ * Bare minimum empty user application template
+ *
+ * \par Content
+ *
+ * -# Include the ASF header files (through asf.h)
+ * -# "Insert system clock initialization code here" comment
+ * -# Minimal main function that starts with a call to board_init()
+ * -# "Insert application code here" comment
+ *
+ */
+
+/*
+ * Include header files for all drivers that have been imported from
+ * Atmel Software Framework (ASF).
+ */
+/*
+ * Support and FAQ: visit <a href="https://www.microchip.com/support/">Microchip Support</a>
+ */
+#include "main_header.h"
+
+volatile uint8_t uc_ch_num[NUM_CHANNELS];
+volatile uint16_t us_value[NUM_CHANNELS];
+
+static void configure_console(void)
+{
+	const usart_serial_options_t uart_serial_options = {
+		.baudrate = CONF_UART_BAUDRATE,
+		.paritytype = CONF_UART_PARITY
+	};
+
+	/* Configure console UART. */
+	sysclk_enable_peripheral_clock(CONSOLE_UART_ID);
+	stdio_serial_init(CONF_UART, &uart_serial_options);
+}
+
+int main (void)
+{
+
+
+		sysclk_init();
+		/* Disable the watchdog */
+		WDT->WDT_MR = WDT_MR_WDDIS;
+		board_init();
+		configure_console();
+		matrix_set_system_io(0xC00);
+        Pherperial_clock_Enable();
+	    Systick_Config();
+		Pherperial_Power_Enable();
+		Delay(50u);
+		Fire_LED_Count(); /*update the Fading count values*/
+		PWM_Init();
+
+
+		adc_init();
+        Startup_Music();
+		Fire_INT_enable();
+	// Initialize the TC. Multiply by 2 because the ISR toggles the LED, thus the
+	// on-off period is 2x the toggle frequency.
+      tc_config(50);
+	  printf("WELCOME\r\n");
+
+	while(1)
+	{
+
+
+        if((count_1ms - adc_prev_tick_g_u32) >= 10u) /*Take an ADC sample for every 10ms*/
+        {
+			//printf("systick_afec0\r\n");
+			afec_start_software_conversion(AFEC0);
+			afec_start_software_conversion(AFEC1);
+	        adc_prev_tick_g_u32 = count_1ms;
+        }
+
+
+		System_Normal_Ind();
+		Secondary_pwr_Ind();
+		Trouble_Ind();
+		System_Reset_Ind();
+		Alarm_Sil_Ind();
+		Fire_Ind();
+		Buzzer_indication();
+		System_Reset_Button();
+		Alarm_Silence_Button();
+ 		Test_Button();
+ 		RGB_TEST();
+		Fire_Switch();
+		primary_pwr_vol_g_u16 =PRI_volt();
+		sec_pwr_vol_g_u16= SEC_volt();
+		hd1_measured_g_u16=HD1_volt();
+		hd2_measured_g_u16=HD2_volt();
+		if(test_sw_pressed_g_b)
+		{
+	     Configuration();
+		}
+
+
+ 	}
+}
+
+
+
+
+
+//
+//
+//
+// static void ProcessButtonEvt(uint8_t uc_button)
+//  {
+// 	// [main_button1_evnt_process]
+// 	if (uc_button == 0) {
+// 		g_b_led0_active = !g_b_led0_active;
+// 		if (!g_b_led0_active) {
+// 			ioport_set_pin_level(SYS_RST_LED, IOPORT_PIN_LEVEL_HIGH);
+// 		}
+// 		else
+// 		{
+// 			ioport_set_pin_level(SYS_RST_LED, 0);
+//
+// 		}
+//
+// 	}
+//
+// 		// [main_button1_evnt_process]
+// 	else if (uc_button == 1) {
+// 			g_b_led0_active = !g_b_led0_active;
+// 			if (!g_b_led0_active) {
+// 				ioport_set_pin_level(Alarm_silence,1);
+// 			}
+// 			else
+// 			{
+// 				ioport_set_pin_level(Alarm_silence,0);
+//
+// 			}
+//
+// 		}
+//
+//
+//
+// 			// [main_button1_evnt_process]
+// 			else if (uc_button == 2) {
+// 				//g_b_led0_active = !g_b_led0_active;
+// 				if (g_b_led0_active) {
+// 					ioport_set_pin_level(ACT_FIRE,1);
+// 					g_pwm_channel_led.channel = PWMH2_CHANNEL;
+// 					pwm_channel_init(PWM, &g_pwm_channel_led);
+// 					pwm_channel_enable(PWM, PWMH2_CHANNEL);
+// 					pwm_channel_update_duty(PWM, &g_pwm_channel_led, 10);
+// 					g_b_led0_active=0;
+// 								g_pwm_channel_led.channel = PWMH3_CHANNEL;
+// 								clock_setting.ul_clka = BUZZER_FREQ_2_5KHZ * PERIOD_VALUE;
+// 								pwm_init(PWM, &clock_setting);
+// 								pwm_channel_init(PWM, &g_pwm_channel_led);
+// 								pwm_channel_enable(PWM, PWMH3_CHANNEL);
+// 								pwm_channel_update_duty(PWM, &g_pwm_channel_led, 10);
+// 				}
+// 				else
+// 				{
+// 					ioport_set_pin_level(ACT_FIRE,0);
+// 					pwm_channel_disable(PWM, PWMH2_CHANNEL);
+// 					g_b_led0_active=1;
+// 					pwm_channel_disable(PWM, PWMH3_CHANNEL);
+//
+//
+// 				}
+//
+// 			}
+//
+//
+// }
+//
+//
+// //// [main_button1_handler]
+// static void Button1_Handler(uint32_t id, uint32_t mask)
+// {
+// 	if (PIN_PUSHBUTTON_1_ID == id && PIN_PUSHBUTTON_1_MASK == mask) {
+// 		ProcessButtonEvt(0);
+// 	}
+// }
+//
+// static void Button2_Handler(uint32_t id, uint32_t mask)
+// {
+// 	if (PIN_PUSHBUTTON_4_ID == id && PIN_PUSHBUTTON_4_MASK == mask) {
+// 		ProcessButtonEvt(1);
+// 	}
+// }
+//
+// static void Button3_Handler(uint32_t id, uint32_t mask)
+// {
+// 	if (PIN_PUSHBUTTON_3_ID == id && PIN_PUSHBUTTON_3_MASK == mask) {
+// 		ProcessButtonEvt(2);
+// 	}
+// }
+// //// [main_button1_handler]
+//
+//
+//  void configure_buttons()
+// {
+// 	//GPIO_PUSH_BUTTON_2
+// 	/* Configure Pushbutton 2 */
+// 	pmc_enable_periph_clk(PIN_PUSHBUTTON_1_ID);//
+// 	pio_set_debounce_filter(PIN_PUSHBUTTON_1_PIO, PIN_PUSHBUTTON_1_MASK, 10);
+// 	/* Interrupt on rising edge  */
+// 	pio_handler_set(PIN_PUSHBUTTON_1_PIO, PIN_PUSHBUTTON_1_ID,
+// 	PIN_PUSHBUTTON_1_MASK, PIN_PUSHBUTTON_3_ATTR, Button1_Handler);
+// 	NVIC_EnableIRQ((IRQn_Type) PIN_PUSHBUTTON_1_ID);
+// 	pio_handler_set_priority(PIN_PUSHBUTTON_1_PIO,
+// 	(IRQn_Type) PIN_PUSHBUTTON_1_ID, IRQ_PRIOR_PIO);
+// 	pio_enable_interrupt(PIN_PUSHBUTTON_1_PIO, PIN_PUSHBUTTON_1_MASK);
+//
+//
+//
+// 	/* Configure Pushbutton 1 */
+// 	pmc_enable_periph_clk(PIN_PUSHBUTTON_4_ID);//
+// 	pio_set_debounce_filter(PIN_PUSHBUTTON_4_PIO, PIN_PUSHBUTTON_4_MASK, 10);
+// 	/* Interrupt on rising edge  */
+// 	pio_handler_set(PIN_PUSHBUTTON_4_PIO, PIN_PUSHBUTTON_4_ID,
+// 	PIN_PUSHBUTTON_4_MASK, PIN_PUSHBUTTON_4_ATTR, Button2_Handler);
+// 	NVIC_EnableIRQ((IRQn_Type) PIN_PUSHBUTTON_4_ID);
+// 	pio_handler_set_priority(PIN_PUSHBUTTON_4_PIO,
+// 	(IRQn_Type) PIN_PUSHBUTTON_4_ID, IRQ_PRIOR_PIO);
+// 	pio_enable_interrupt(PIN_PUSHBUTTON_4_PIO, PIN_PUSHBUTTON_4_MASK);
+//
+//
+//
+//
+//
+// 		/* Configure Pushbutton 1 */
+// 		pmc_enable_periph_clk(PIN_PUSHBUTTON_3_ID);//
+// 		pio_set_debounce_filter(PIN_PUSHBUTTON_3_PIO, PIN_PUSHBUTTON_3_MASK, 10);
+// 		/* Interrupt on rising edge  */
+// 		pio_handler_set(PIN_PUSHBUTTON_3_PIO, PIN_PUSHBUTTON_3_ID,
+// 		PIN_PUSHBUTTON_3_MASK, PIN_PUSHBUTTON_3_ATTR, Button3_Handler);
+// 		NVIC_EnableIRQ((IRQn_Type) PIN_PUSHBUTTON_3_ID);
+// 		pio_handler_set_priority(PIN_PUSHBUTTON_3_PIO,
+// 		(IRQn_Type) PIN_PUSHBUTTON_3_ID, IRQ_PRIOR_PIO);
+// 		pio_enable_interrupt(PIN_PUSHBUTTON_3_PIO, PIN_PUSHBUTTON_3_MASK);
+//
+//
+// }
+//
+//
+
+
+
+
+
+
+// 		#if 0
+// 		ioport_set_pin_level(Amerex_R,0);
+// 		ioport_set_pin_level(Amerex_G,0);
+// 		ioport_set_pin_level(Amerex_B,0);
+// 		delay_ms(3000);
+// 		ioport_set_pin_level(Amerex_R,1);
+// 		ioport_set_pin_level(Amerex_G,0);
+// 		ioport_set_pin_level(Amerex_B,0);
+// 		delay_ms(3000);
+// 		ioport_set_pin_level(Amerex_R,0);
+// 		ioport_set_pin_level(Amerex_G,1);
+// 		ioport_set_pin_level(Amerex_B,0);
+// 		delay_ms(3000);
+// 		ioport_set_pin_level(Amerex_R,0);
+// 		ioport_set_pin_level(Amerex_G,0);
+// 		ioport_set_pin_level(Amerex_B,1);
+// 		delay_ms(3000);
+// 		ioport_set_pin_level(Amerex_R,1);
+// 		ioport_set_pin_level(Amerex_G,1);
+// 		ioport_set_pin_level(Amerex_B,0);
+// 		delay_ms(3000);
+// 		ioport_set_pin_level(Amerex_R,1);
+// 		ioport_set_pin_level(Amerex_G,0);
+// 		ioport_set_pin_level(Amerex_B,1);
+// 		delay_ms(3000);
+// 		ioport_set_pin_level(Amerex_R,0);
+// 		ioport_set_pin_level(Amerex_G,1);
+// 		ioport_set_pin_level(Amerex_B,1);
+// 		delay_ms(3000);
+// 		ioport_set_pin_level(Amerex_R,1);
+// 		ioport_set_pin_level(Amerex_G,1);
+// 		ioport_set_pin_level(Amerex_B,1);
+// 		delay_ms(3000);
+// 		#endif
+//
+	

@@ -1,0 +1,78 @@
+/*
+ * spi_u.h
+ *
+ * Created: 29-08-2022 16:43:49
+ *  Author: p.dharmaraj
+ */
+
+
+#ifndef SPI_U_H_
+#define SPI_U_H_
+
+extern volatile uint32_t spi_flash_addr_g_u32;
+extern char Read_flash_data[8];
+//  #define EXT_FLASH_STARTSECTOR_ADDR          8192//4096
+
+#define EXT_FLASH_STORE_SEQ_ADDR_SECTOR       0#define  EXT_FLASH_Config_BLOCK             4096#define EXT_FLASH_SECTOR_SIZE               4096
+#define EXT_FLASH_BLOCK_SIZE                65536
+#define MAX_PAYLOAD_COUNT                     42966
+#define MAX_PAYLOAD_PER_SECTOR                341
+#define MAX_PAYLOAD_PER_BLOCK                 5456
+#define FALSH_SECTOR_PER_BLOCK                16
+#define FREE_BYTES_IN_SECTOR                  4
+#define MAX_SIZE_OF_PAYLOAD                   12
+
+
+
+
+
+
+typedef struct {
+	uint32_t flash_data_counter;
+	uint8_t Trigger;
+} paloadCount_t;
+
+
+paloadCount_t payload_cnt;
+
+extern uint8_t crc8_cal(uint8_t *data, uint16_t length);
+void NOR_Flash_Log_Data(flash *mylog);
+void write_flash_mid_param(uint8_t *data);
+void read_flash_mid_param(void *addr, paloadCount_t *payload_cnt);
+void at25dfx_init(void);
+void Reset_Values(void);
+void flash_read_amerex_param(void *addr, my_data *amerex_param);
+void database_send_payload(uint16_t mid);
+uint8_t flash_write_amerex_param(uint8_t *data);
+__int64_t Convert_Epoch_time(void);
+
+
+
+#endif /* SPI_U_H_ */
+
+
+/*
+ * Detailed Sizes and locations for Flash Memory:
+ *  ____________________ ___________ ____________________________________________________________________________
+ * | Starting Address	|	Size	|	Location's Name			|	Description						   			|
+ * |____________________|___________|___________________________|_______________________________________________|
+ * |	  0 K  			|	  4	K	| 	Boot Firmware			|	Firmware to select which version to run		|
+ * |	  4	K 			|	  8 K	|	Control Section			|	Structured data used by Boot firmware		|
+ * |	 12 K			|     4	K	|	PLL+GAIN :				|	LookUp Table for PLL and Gain calculations	|
+ * |	  				|     		|	PLL  Size = 1K			|		PLL				 						|
+ * |	  				|     		|	GAIN Size = 3K			|		Gain configuration				 		|
+ * |	 16	K			|	  4	K	|	CERTIFICATE				|	X.509 Certificate storage					|
+ * |	 20	K			|	  8	K	|	TLS Server				|	TLS Server Private Key and certificates		|
+ * |	 28	K			|	  8	K	|	HTTP Files				|	Files used with Provisioning Mode			|
+ * |	 36	K			|	  4	K	|	Connection Parameters	|	Parameters for success connection to AP		|
+ * |	 40	K			|	236 K 	|	Main Firmware/program	|	Main Firmware to run WiFi Chip				|
+ * |	276	K			|	236 K	|	OTA Firmware		    |	OTA firmware								|
+ * |    512 K           |   512 K   |   Host File Storage       |    WINC1510 (8Mb of Flash) only               |
+ * |------------------------------------------------------------------------------------------------------------|
+ * |                     Total flash size is 512 K for WINC1500 and 1024 K for WINC1510                         |
+ * |____________________________________________________________________________________________________________|
+ *
+ *
+ * *Keys for Comments with each MACRO:
+ * 		"L:xxxK" -means-> location 	:xxxK
+ */	

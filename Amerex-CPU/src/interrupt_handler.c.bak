@@ -1,0 +1,512 @@
+// /*
+//  * interrupt_handler.c
+//  *
+//  * Created: 12-07-2022 15:26:20
+//  *  Author: p.dharmaraj
+//  */
+  #include "main_header.h"
+#include "conf_bootloader.h"
+volatile uint32_t count_1ms = 0u;
+volatile uint8_t Timer_cnt_msec=0;
+volatile uint8_t Timer_cnt_sec=0;
+volatile bool Fire_Alart_bit=0;
+
+can_mb_conf_t  rx_mailbox;
+bool g_ul_recv_status = 0;;
+static char datalow[4];
+static char datahigh[4];
+static char Merge_Arr[8];
+// void read_data(int);
+uint8_t g_ul_log_en=0;
+uint8_t ota_start=0u;
+  uint8_t falsh_state=0;
+
+  static uint32_t File_size = 0;
+  #define TRIGGER_BOOTLAOAD (1)
+  uint16_t RX_imageCRC = 0;
+ union
+ {
+	 uint32_t data;
+	 struct
+	 {
+		 unsigned char RawData[4];
+	 }rx_data;
+ }decode;
+  /** Boot informations */
+  typedef struct regions_info {
+	  /** Firmware length in regions */
+	  uint32_t length;
+	  /** Software trigger to force action */
+	  uint32_t trigger;
+	  uint8_t crc;
+	  uint32_t OAD_image_CRC;
+
+  } regions_info_t;
+
+uint16_t crc16(uint16_t crc, unsigned char val) {
+	const uint16_t poly = 0x1021;
+	unsigned char cnt;
+
+	for (cnt = 0; cnt < 8; cnt++, val <<= 1) {
+		unsigned char msb = (crc & 0x8000) ? 1 : 0;
+
+		crc <<= 1;
+
+		if (val & 0x80) {
+			crc |= 0x0001;
+		}
+
+		if (msb) {
+			crc ^= poly;
+		}
+	}
+
+	return crc;
+}
+ void decode_can_msg(can_mb_conf_t *p_mailbox)
+{
+	uint32_t timestamp = 0;
+	uint8_t temp;
+	uint8_t res;
+	memset(datahigh,0,sizeof(datahigh));
+	memset(datalow,0,sizeof(datalow));
+
+	decode.data = p_mailbox->ul_datal ;
+	decode.rx_data.RawData[4]    = decode.data;
+
+	//printf("datahigh %ld\r\n",decode.data);
+	memcpy(datahigh, decode.rx_data.RawData, 4);
+
+// 	 	for(int i =0;i<4;i++)
+// 	 	{
+//
+// 		 	printf("Hello World %u\n",datahigh[i]);
+//
+// 	 	}
+
+
+	decode.data = p_mailbox->ul_datah;
+
+      timestamp =decode.data;
+	decode.rx_data.RawData[4]    = decode.data;
+	memcpy(datalow, decode.rx_data.RawData, 4);
+// 	for(int i =0;i<4;i++)
+// 	{
+//
+// 		printf("Hello World %u\n",datalow[i]);
+//
+// 	}
+
+
+	  switch (datahigh[0]) {
+
+		 case Amerex_rtc_set:
+							printf("Amerex_rtc_set %ld\r\n",timestamp);
+							RV3028_Set_TimeStamp(timestamp);
+							printf("Time at Bootup : %lu\r\n", RV3028_GetTime(&_RTC));
+							//printf(" %u:%u:%u,%u/%u/%u\r\n",_CurrentTime.tm_hour, _CurrentTime.tm_min, _CurrentTime.tm_sec,_CurrentTime.tm_mday, _CurrentTime.tm_mon, _CurrentTime.tm_year);
+							break;
+		case Amerex_config_set:
+						//	printf("Amerex_config_set\r\n");
+							if(datalow[0]>=10 && datalow[0]<=100)
+							amerex_config_data.all_LED_duty = datalow[0];
+
+							 if(datalow[1]>=10 && datalow[1]<=100)
+							amerex_config_data.fire_LED_duty = datalow[1];
+
+							 temp = (datalow[2] >> 4) & 0x0F;
+							 if(temp>=1 && temp<=6)
+								amerex_config_data.trbl_relay_delay = temp *1000;
+							 temp = datalow[2]  & 0x0F ;
+							  if(temp>=1 && temp<=6)
+								amerex_config_data.fire_relay_delay =  temp *1000;
+							 temp = datalow[3] & 0x0F ;
+							if(temp>=1 && temp<=2)
+							amerex_config_data.CAN_baud_rate = temp;
+							amerex_config_data.Trigger =1u;
+							uint8_t* ptr = (uint8_t*) &amerex_config_data;
+							res = flash_write_amerex_param(ptr);
+							if(res==0)
+							{
+								rstc_start_software_reset(RSTC);
+							}
+
+							break;
+		case Amerex_Boardno_set:
+							//printf("Amerex_Boardno_set\r\n");
+							break;
+		case Amerex_get_config:
+							//printf("Amerex_config_get\r\n");
+
+							break;
+	    case Amerex_Get_Log:
+							printf("Amerex_Get_Log\r\n");
+							g_ul_log_en =1;
+							break;
+	    case Amerex_Software_RST:
+							printf("Amerex_Software_RST\r\n");
+							 rstc_start_software_reset(RSTC);
+							break;
+		default:
+		                   // printf("unknown commands\r\n") ;
+		                   break;
+
+
+                      }
+}
+
+
+/**
+ * \brief Default interrupt handler for CAN 1.	   // Set transfer id on CAN Bus Analyzer rx_mailbox.ul_id = CAN_MID_MIDvA(CAN_TRANSFER_ID) ex:transmit id: 7
+ */
+void CAN0_Handler(void)
+{
+	uint32_t ul_status=0;
+
+	ul_status = can_mailbox_get_status(CAN0, 0 );	//  && g_ul_recv_status == 0
+	if (ul_status & CAN_MSR_MRDY ) {   //&& g_ul_recv_status == 0
+		rx_mailbox.ul_status = ul_status;
+		can_mailbox_read(CAN0, &rx_mailbox);
+		g_ul_recv_status = 1;
+
+	}
+}
+
+void DFU_callback_Fun(can_mb_conf_t *p_mailbox)
+{
+
+	uint16_t imageCRC = 0;
+	//uint32_t timestamp = 0;
+	//uint8_t temp;
+	//uint8_t Extra_BYTE=0;
+	//uint8_t res;
+	static volatile uint32_t remFileSize = 0,flashPos = 0;
+	//uint16_t volatile dataRcdlen=0;
+	uint32_t cnt = 0;
+	DFU_auto_exit_prev_tick_g_u32 =count_1ms;
+	static uint8_t otabit=0;
+	memset(datahigh,0,sizeof(datahigh));
+	memset(datalow,0,sizeof(datalow));
+	decode.data = p_mailbox->ul_datah ;
+	decode.rx_data.RawData[4]    = decode.data;
+	memcpy(datahigh, decode.rx_data.RawData, 4);
+	decode.data = p_mailbox->ul_datal;
+	decode.rx_data.RawData[4]    = decode.data;
+	memcpy(datalow, decode.rx_data.RawData, 4);
+
+
+	if(datalow[0] == 0x06 && datalow[1] == 0x01 && p_mailbox->uc_length ==2u)
+	{
+				ioport_set_pin_level(Amerex_R,1);
+		/* Init CAN1 Mailbox 1 to Transmit Mailbox. */
+		reset_mailbox_conf(&tx_mailbox);
+		tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+		tx_mailbox.uc_obj_type = CAN_MB_TX_MODE;
+		tx_mailbox.uc_tx_prio = CAN_TX_PRIO;
+		can_mailbox_init(CAN0, &tx_mailbox);
+		/* Write transmit information into mailbox. */
+		tx_mailbox.ul_id = CAN_MID_MIDvA(2);
+		tx_mailbox.uc_length = 1;
+		tx_mailbox.ul_datal = 0x01;
+		can_mailbox_write(CAN0, &tx_mailbox);
+		/* Send out the information in the mailbox. */
+		can_global_send_transfer_cmd(CAN0,CAN_TCR_MB1);
+	}
+
+	if(datalow[0] == 0x06 && datalow[1] == 0x07 && p_mailbox->uc_length <7u)
+	{
+
+		RX_imageCRC =	 (datalow[3]<<8 | datalow[2]);
+		printf("RX_imageCRC %x\n",RX_imageCRC);
+		/* Init CAN1 Mailbox 1 to Transmit Mailbox. */
+		reset_mailbox_conf(&tx_mailbox);
+		tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+		tx_mailbox.uc_obj_type = CAN_MB_TX_MODE;
+		tx_mailbox.uc_tx_prio = CAN_TX_PRIO;
+		can_mailbox_init(CAN0, &tx_mailbox);
+		/* Write transmit information into mailbox. */
+		tx_mailbox.ul_id = CAN_MID_MIDvA(2);
+		tx_mailbox.uc_length = 1;
+		tx_mailbox.ul_datal = 0x07;
+		can_mailbox_write(CAN0, &tx_mailbox);
+		/* Send out the information in the mailbox. */
+		can_global_send_transfer_cmd(CAN0,CAN_TCR_MB1);
+	}
+
+
+	else if(datalow[0] == 0x06 && datalow[1] == 0x02 && p_mailbox->uc_length <7u)
+	{
+		File_size = remFileSize =	 (datalow[3]<<8 | datalow[2]);
+		reset_mailbox_conf(&tx_mailbox);
+		tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+		tx_mailbox.uc_obj_type = CAN_MB_TX_MODE;
+		tx_mailbox.uc_tx_prio = CAN_TX_PRIO;
+		can_mailbox_init(CAN0, &tx_mailbox);
+		tx_mailbox.ul_id = CAN_MID_MIDvA(2);
+		tx_mailbox.uc_length = 1;
+		if (remFileSize>2000u)
+		{
+			flashPos = 0;
+			ota_start =1;
+			remFileSize =remFileSize;
+			falsh_state=at25dfx_erase_block_OTA(0);
+			tx_mailbox.ul_datal = 0x02;
+			ioport_set_pin_level(Amerex_R,0);
+		}
+		else
+		tx_mailbox.ul_datal = 0x01;
+		can_mailbox_write(CAN0, &tx_mailbox);
+		can_global_send_transfer_cmd(CAN0,CAN_TCR_MB1);
+		printf("File_size %u\n",remFileSize);
+
+	}
+
+
+
+	else if(( remFileSize!=0))// p_mailbox->uc_length == 8u &&
+	{
+		//printf("Length %d\n",p_mailbox->uc_length);
+		// Calculate the size of the merged array
+		char size1 = sizeof(datahigh) / sizeof(datahigh[0]);
+		char size2 = sizeof(datalow) / sizeof(datalow[0]);
+		//uint8_t mergedSize = size1 + size2;
+
+		// Copy elements from array1 to mergedArray
+		memcpy(Merge_Arr, datalow, size2 * sizeof(char));
+
+		// Copy elements from array2 to mergedArray
+		memcpy(Merge_Arr + size2, datahigh, size1 * sizeof(char));
+
+//remFileSize -=(remFileSize > p_mailbox->uc_length) ?(p_mailbox->uc_length) : remFileSize;
+
+//if(	p_mailbox->uc_length<8)
+//{
+		        //uint8_t	extra_byte = p_mailbox->uc_length;
+				    //for (; extra_byte <=8u; extra_byte++) {
+				    	//Merge_Arr[extra_byte]  = 0x00;
+				    //}
+				    //extra_byte =0;
+				//p_mailbox->uc_length=8;
+//}
+
+
+
+
+
+										 //  for (int i = 0; i < mergedSize; i++) {
+										//	   printf("%x", Merge_Arr[i]);
+										//   }
+		// printf("\n");
+		wdt_restart(WDT);
+		falsh_state=at25dfx_write(Merge_Arr, p_mailbox->uc_length,flashPos);
+
+			  								flashPos +=(remFileSize > p_mailbox->uc_length) ?(p_mailbox->uc_length) : remFileSize;
+								remFileSize -=(remFileSize > p_mailbox->uc_length) ?(p_mailbox->uc_length) : remFileSize;
+
+
+
+			  otabit = ~otabit;
+			  ioport_set_pin_level(Amerex_B,otabit);
+	//	((p_mailbox->uc_length >= 8u))?(remFileSize -= p_mailbox->uc_length):(remFileSize=0);
+		 // printf("Rs_1:%x\n",remFileSize);
+		if (remFileSize >0) {
+
+		//	flashPos += p_mailbox->uc_length;
+			//printf("Loc:%x\n",flashPos);
+			//printf("Rs_2:%x\n",remFileSize);
+			memset(Merge_Arr, 0, sizeof(Merge_Arr));
+			//if(remFileSize<8)remFileSize=8;
+			ota_process_start();
+		}
+		else
+		{
+			ota_process_end();
+			remFileSize =File_size;
+			flashPos=0;
+			otabit=0;
+			  ioport_set_pin_level(Amerex_B,0);
+		  // printf("end\n");
+			do
+			{
+				memset(Merge_Arr, 0, sizeof(Merge_Arr));
+
+				falsh_state=at25dfx_read(Merge_Arr, sizeof(Merge_Arr),flashPos);
+
+								//   for (int i = 0; i < mergedSize; i++) {
+								//	   printf("%x", Merge_Arr[i]);
+								//   }
+				for (cnt = 0; cnt < 8;  cnt++)
+				{
+					imageCRC = crc16(imageCRC,Merge_Arr[cnt]);
+					//   printf("imageCRC %x\r\n",imageCRC);
+
+				}
+			  flashPos +=(remFileSize > 8) ?(8) : remFileSize;
+			remFileSize -=(remFileSize > 8) ?(8) : remFileSize;
+
+					  otabit = ~otabit;
+					  ioport_set_pin_level(Amerex_G,otabit);
+				// printf("\n");
+				wdt_restart(WDT);
+
+			} while (remFileSize>0);
+
+
+			printf("Final imageCRC \n RX_imageCRC %x \n%x\r\n",imageCRC,RX_imageCRC);
+			regions_info_t info;
+			void *info_addr;
+			if (imageCRC == RX_imageCRC)
+			{
+				info.length = File_size;	//flashPos
+				info.trigger = TRIGGER_BOOTLAOAD;
+				info.OAD_image_CRC = imageCRC;
+			}
+			else
+			{
+				info.length = 0;
+				info.trigger = 0;
+				info.OAD_image_CRC = 0;
+			}
+			wdt_restart(WDT);
+			//memory_init();
+			info_addr = (void *)INFO_ADDR(0);
+		//	printf("Write info area ...\r\n");
+			memory_erase(info_addr, INFO_SIZE);
+			memory_write(info_addr, &info);
+
+			rstc_start_software_reset(RSTC);
+			//rstc_start_software_reset(RSTC);
+			//rstc_start_software_reset(RSTC);
+
+		}
+
+	}
+
+
+}
+
+
+
+
+/**
+ * \brief Decode CAN messages.
+ *
+ *  \param p_mailbox Pointer to CAN Mailbox structure.
+ */
+  void ota_process_start(void)
+  {
+
+	  reset_mailbox_conf(&tx_mailbox);
+	  tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+	  tx_mailbox.uc_obj_type = CAN_MB_TX_MODE;
+	  tx_mailbox.uc_tx_prio = CAN_TX_PRIO;
+	  can_mailbox_init(CAN0, &tx_mailbox);
+
+	  /* Write transmit information into mailbox. */
+	  tx_mailbox.ul_id = CAN_MID_MIDvA(2);	//j1939_pgn(TP_DATA_PGN);
+	  //tx_mailbox.ul_datal = CAN_MSG_DUMMY_DATA;
+	  tx_mailbox.uc_length = 1;
+
+	  // tx_mailbox.ul_datah = 0x01;
+	  tx_mailbox.ul_datal = 0x03;
+	  can_mailbox_write(CAN0, &tx_mailbox);
+
+	  /* Send out the information in the mailbox. */
+	  can_global_send_transfer_cmd(CAN0,CAN_TCR_MB1);	// CAN_TCR_MB1
+
+
+
+
+  }
+
+  void ota_process_end(void)
+  {
+
+	  reset_mailbox_conf(&tx_mailbox);
+	  tx_mailbox.ul_mb_idx = CAN_COMM_TXMB_ID;
+	  tx_mailbox.uc_obj_type = CAN_MB_TX_MODE;
+	  tx_mailbox.uc_tx_prio = CAN_TX_PRIO;
+	  can_mailbox_init(CAN0, &tx_mailbox);
+
+	  /* Write transmit information into mailbox. */
+	  tx_mailbox.ul_id = CAN_MID_MIDvA(2);	//j1939_pgn(TP_DATA_PGN);
+	  //tx_mailbox.ul_datal = CAN_MSG_DUMMY_DATA;
+	  tx_mailbox.uc_length = 1;
+
+	  // tx_mailbox.ul_datah = 0x01;
+	  tx_mailbox.ul_datal = 0x04;
+	  can_mailbox_write(CAN0, &tx_mailbox);
+
+	  /* Send out the information in the mailbox. */
+	  can_global_send_transfer_cmd(CAN0,CAN_TCR_MB1);	// CAN_TCR_MB1
+
+  }
+
+
+void Timer0_init()
+    {
+	    pmc_enable_periph_clk(ID_TC);
+	    tc_init(TC0, 0, TC_CMR_TCCLKS_TIMER_CLOCK5 | TC_CMR_CPCTRG);
+	    tc_write_rc(TC0, 0, BOARD_FREQ_SLCK_XTAL);
+	    tc_enable_interrupt(TC, CHANNEL, TC_IER_CPCS);
+	    NVIC_ClearPendingIRQ(TC_IRQn);
+	    NVIC_SetPriority(TC_IRQn,0);
+	     NVIC_EnableIRQ(TC_IRQn);
+
+    }
+
+
+ void SysTick_Handler(void)
+ {
+	 count_1ms++;
+ }
+
+   void TC_Handler(void)
+   {
+
+	   if (tc_get_status(TC0, 0) & TC_SR_CPCS)
+	   {
+		   Timer_cnt_msec ++;
+		   if (Timer_cnt_msec>=57u)
+		   {
+			   	Timer_cnt_msec =0;
+				   Timer_cnt_sec++;
+
+			   if (Timer_cnt_sec>=30)
+			   {
+				   Timer_cnt_sec=0;
+				   
+					printf("Stop _timer0\n");
+					alarm_sil_flag_g_b = 0u;
+					tc_stop(TC0,0);
+					
+
+			   }
+
+		   }
+
+	   }
+
+   }
+
+
+
+
+
+
+// configure gpio///////////////
+// ioport_configure_port_pin(&PORTD, PIN1_bm, IOPORT_INIT_HIGH | IOPORT_DIR_OUTPUT);
+
+
+
+/*
+ * -# Build the program
+ * The bootloader code and application code are compiled separately. The factory code should
+ * contain both bootloader code and application code. So, it is required to combine
+ * both the images (.hex) before programing on the board. Open Bootloader example
+ * (HOST_FIRMWARE_UPGRADE_BOOTLOADER_EXAMPLE) from ASF. Compile and generate .hex file.
+ * Combine application .hex (this project) and bootloader .hex using srec_cat
+ * (refer: https://sourceforge.net/projects/srecord/files/srecord/) and download the
+ * combined image into the board.
+ * -# On the computer, open and configure a terminal application as the follows.
+ */

@@ -1,0 +1,47 @@
+/*
+ * main_header.h
+ *
+ * Created: 12-07-2022 14:37:38
+ *  Author: p.dharmaraj
+ */
+
+
+#ifndef MAIN_HEADER_H_
+#define MAIN_HEADER_H_
+
+/* Standard C header Files*/
+
+
+#include <string.h>
+#include <time.h>
+
+#include <asf.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <board.h>
+#include <sysclk.h>
+#include <pwm.h>
+#include <conf_board.h>
+#include <asf.h>
+#include "compiler.h"
+#include "board.h"
+#include "conf_board.h"
+#include "ioport.h"
+
+
+/*User defined header Files*/
+#include "system_init.h"
+#include "interrupt_handler.h"
+#include "pwm_u.h"
+#include "configuration.h"
+#include "buzzer.h"
+#include "led.h"
+#include "switch_inputs.h"
+#include "adc_u.h"
+#include "fire.h"
+#include "trouble.h"
+
+
+
+
+#endif /* MAIN_HEADER_H_ */
